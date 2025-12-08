@@ -32,7 +32,8 @@ import org.gluu.agama.smtp.*;
 import com.twilio.Twilio;
 import com.twilio.rest.api.v2010.account.Message;
 import com.twilio.type.PhoneNumber;
-
+import io.jans.service.net.NetworkService;
+import jakarta.servlet.http.HttpServletRequest; 
 
 
 public class JansUserRegistration extends NewUserRegistration {
@@ -61,6 +62,14 @@ public class JansUserRegistration extends NewUserRegistration {
     private static final String SUBJECT_TEMPLATE = "Here's your verification code: %s";
     private static final String MSG_TEMPLATE_TEXT = "%s is the code to complete your verification";   
     private static final SecureRandom RAND = new SecureRandom();
+
+    // Track OTP attempts by IP for 24-hour rate limiting
+    private static final Map<String, List<Long>> ipAccessLog = new HashMap<>();
+    private static final Map<String, List<Long>> ipRegAccessLog = new HashMap<>();
+    private static final int MAX_ATTEMPTS_PER_DAY = 4; // 1 + 3 resends allowed
+    private static final int MAX_REG_ATTEMPTS_PER_DAY = 3;   // 3 registrations per IP
+    private static final long TIME_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
+    // private static String currentClientIp = "127.0.0.1"; 
     
 
     private static JansUserRegistration INSTANCE = null;
@@ -96,6 +105,53 @@ public class JansUserRegistration extends NewUserRegistration {
         }
         return INSTANCE;
     }
+
+
+    private void logIncomingHeaders() {
+        try {
+            HttpServletRequest request = CdiUtil.bean(HttpServletRequest.class);
+
+            LogUtils.log("|+++++++++++++++++++++++++++++++++++++| ===== Incoming Headers =====");
+
+            Enumeration<String> headerNames = request.getHeaderNames();
+            if (headerNames == null) {
+                LogUtils.log("|+++++++++++++++++++++++++++++++++++++| No headers found.");
+                return;
+            }
+
+            while (headerNames.hasMoreElements()) {
+                String header = headerNames.nextElement();
+                String value = request.getHeader(header);
+                LogUtils.log("|org.gluu.agama.change.phonenumber| HEADER: {} = {}", header, value);
+            }
+
+            LogUtils.log("|org.gluu.agama.change.phonenumber| ===========================");
+
+      } catch (Exception e) {
+            LogUtils.log("|org.gluu.agama.change.phonenumber| Failed to log headers: {}", e.getMessage());
+        }
+    }
+
+    private String extractClientIp() {
+            try {
+                HttpServletRequest request = CdiUtil.bean(HttpServletRequest.class);
+
+                // 1️⃣ Check X-Forwarded-For first (most reliable)
+                String xff = request.getHeader("X-Forwarded-For");
+                if (xff != null && !xff.isEmpty()) {
+                    // Handles multiple IPs: "10.1.1.1, 192.168.1.10"
+                    return xff.split(",")[0].trim();
+                }
+
+                // 2️⃣ fallback to remote address
+                return request.getRemoteAddr();
+            } catch (Exception e) {
+                LogUtils.log("Failed to extract client IP: {}", e.getMessage());
+                return "127.0.0.1";
+            }
+     }
+
+
 
     public  Map<String, Object> validateInputs(Map<String, String> profile) {
         LogUtils.log("Validate inputs ");
@@ -279,6 +335,21 @@ public class JansUserRegistration extends NewUserRegistration {
     
         
     public String sendOTPCode(String phone, String lang) {
+        
+        logIncomingHeaders(); // Log headers for debugging
+
+        String clientIp = extractClientIp(); // ✅ Read stored IP instead of parameter
+        logger.info("Using IP {} for OTP request of user {}", clientIp, phone);
+
+        // ✅ Enforce resend rate limit
+        if (isIpBlocked(clientIp)) {
+            logger.info("IP {} is blocked for 24h due to excessive OTP requests", clientIp);
+            return null;
+            }
+
+            recordOtpAttempt(clientIp); // ✅ Record attempt with stored IP
+            logger.info("✅ OTP attempt recorded for IP {} (Total: {})", clientIp, ipAccessLog.get(clientIp).size());
+
         try {
             logger.info("Sending OTP Code via SMS to phone: {}", phone);
 
@@ -490,6 +561,19 @@ public class JansUserRegistration extends NewUserRegistration {
 
 
     public String addNewUser(Map<String, String> profile) throws Exception {
+
+        logIncomingHeaders(); // Log headers for debugging
+        String clientIp = extractClientIp();
+        logger.info("New registration attempt from IP {}", clientIp);
+
+        if (isRegIpBlocked(clientIp)) {
+            logger.error("IP {} BLOCKED from creating new accounts", clientIp);
+            throw new RuntimeException("Too many registration attempts. Please try again in 24 hours.");
+        }
+
+        // Log this registration attempt
+        recordRegAttempt(clientIp);
+
         Set<String> attributes = Set.of("uid", "mail", "displayName","givenName", "sn", "userPassword", "lang", "residenceCountry", "referralCode");
         User user = new User();
     
@@ -665,5 +749,66 @@ public class JansUserRegistration extends NewUserRegistration {
             return result;
         }
     }
+
+    //SMS-IP-BLOCKING-FIXES
+    private void recordOtpAttempt(String clientIp) {
+        long now = System.currentTimeMillis();
+        ipAccessLog.compute(clientIp, (key, timestamps) -> {
+            if (timestamps == null) timestamps = new ArrayList<>();
+            timestamps.removeIf(ts -> now - ts > TIME_WINDOW_MS);
+            timestamps.add(now);
+            return timestamps;
+        });
+        // ✅ FIXED: Was using 'ip' instead of 'clientIp'
+        logger.info("📊 OTP attempt recorded for IP {} → count: {}", clientIp, ipAccessLog.get(clientIp).size());
+    }
+
+    private boolean isIpBlocked(String clientIp) {
+        List<Long> timestamps = ipAccessLog.get(clientIp);
+            if (timestamps == null) return false;
+
+            long now = System.currentTimeMillis();
+            timestamps.removeIf(ts -> now - ts > TIME_WINDOW_MS);
+
+            boolean blocked = timestamps.size() >= MAX_ATTEMPTS_PER_DAY;
+            if (blocked) {
+                logger.warn(" IP {} BLOCKED for 24h — Attempts: {}/{}", clientIp, timestamps.size());
+            }
+        return blocked;
+    }
+    
+    //REGISTRATION-IP-BLOCKING-FIXES
+    private boolean isRegIpBlocked(String clientIp) {
+        List<Long> timestamps = ipRegAccessLog.get(clientIp);
+            if (timestamps == null) return false;
+
+            long now = System.currentTimeMillis();
+            timestamps.removeIf(ts -> now - ts > TIME_WINDOW_MS);
+
+            boolean blocked = timestamps.size() >= MAX_REG_ATTEMPTS_PER_DAY;
+
+            if (blocked) {
+                logger.info("REGISTRATION BLOCK — IP {} has exceeded {}/{} attempts",
+                        clientIp, timestamps.size(), MAX_REG_ATTEMPTS_PER_DAY);
+            }
+
+        return blocked;
+    }
+
+    private void recordRegAttempt(String clientIp) {
+        long now = System.currentTimeMillis();
+
+        ipRegAccessLog.compute(clientIp, (key, timestamps) -> {
+            if (timestamps == null) timestamps = new ArrayList<>();
+            timestamps.removeIf(ts -> now - ts > TIME_WINDOW_MS);
+            timestamps.add(now);
+            return timestamps;
+        });
+
+        logger.info("Registration attempt logged for IP {} → Total: {}",
+                clientIp, ipRegAccessLog.get(clientIp).size());
+    }
+
+
 }
 
