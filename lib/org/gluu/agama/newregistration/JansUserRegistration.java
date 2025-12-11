@@ -810,5 +810,71 @@ public class JansUserRegistration extends NewUserRegistration {
     }
 
 
+    @Override
+    public boolean sendAccountCreationNotificationEmail(String to, String username, String lang) {
+        try {
+            ConfigurationService configService = CdiUtil.bean(ConfigurationService.class);
+            SmtpConfiguration smtpConfig = configService.getConfiguration().getSmtpConfiguration();
+
+            if (smtpConfig == null) {
+                logger.error("SMTP configuration missing.");
+                return false;
+            }
+
+            String preferredLang = (lang != null && !lang.isEmpty()) ? lang.toLowerCase() : "en";
+            Map<String, String> templateData = null;
+
+            switch (preferredLang) {
+                case "ar": templateData = AccountCreationTemplateAr.get(username); break;
+                case "es": templateData = AccountCreationTemplateEs.get(username); break;
+                case "fr": templateData = AccountCreationTemplateFr.get(username); break;
+                case "id": templateData = AccountCreationTemplateId.get(username); break;
+                case "pt": templateData = AccountCreationTemplatePt.get(username); break;
+                default:   templateData = AccountCreationTemplateEn.get(username); break;
+            }
+
+            if (templateData == null || !templateData.containsKey("body")) {
+                logger.error("No email template found for language: {}", preferredLang);
+                return false;
+            }
+
+            String subject = templateData.getOrDefault("subject", "Your Username Information");
+            String htmlBody = templateData.get("body");
+
+            if (htmlBody == null || htmlBody.isEmpty()) {
+                logger.error("Email HTML body is empty for language: {}", preferredLang);
+                return false;
+            }
+
+            // Plain text version
+            String textBody = htmlBody.replaceAll("\\<.*?\\>", "");
+
+            MailService mailService = CdiUtil.bean(MailService.class);
+
+            boolean sent = mailService.sendMailSigned(
+                smtpConfig.getFromEmailAddress(),
+                smtpConfig.getFromName(),
+                to,
+                null,
+                subject,
+                textBody,
+                htmlBody
+            );
+
+            if (sent) {
+                LogUtils.log("Localized username update email sent successfully to %", to);
+            } else {
+                LogUtils.log("Failed to send localized username update email to %", to);
+            }
+
+            return sent;
+
+        } catch (Exception e) {
+            LogUtils.log("Failed to send username update email: %", e.getMessage());
+            return false;
+        }
+    }
+
+
 }
 
