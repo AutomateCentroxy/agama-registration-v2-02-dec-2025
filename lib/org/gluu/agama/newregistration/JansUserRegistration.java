@@ -63,27 +63,14 @@ public class JansUserRegistration extends NewUserRegistration {
     private static final SecureRandom RAND = new SecureRandom();
 
     // Track OTP attempts by IP for 24-hour rate limiting
-    private static final Map<String, List<Long>> ipAccessLog = new HashMap<>();
-    private static final Map<String, List<Long>> ipRegAccessLog = new HashMap<>();
-    private static final Map<String, List<Long>> emailOtpAttempts = new HashMap<>();
-    private static final Map<String, Long> emailBlockUntil = new HashMap<>();
+    private transient final Map<String, String> emailOtpStore = new HashMap<>();
+    private transient static final Map<String, String> userCodes = new HashMap<>();
 
-    // private static final int MAX_ATTEMPTS_PER_DAY = 4; // 1 + 3 resends allowed
-    // private static final int MAX_REG_ATTEMPTS_PER_DAY = 3; // 3 registrations per
-    // IP
-    // private static final long TIME_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
-    // private static final int EMAIL_OTP_LIMIT = 10; // 10 attempts allowed
-    // private static final long EMAIL_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
-    // window
-    // private static final long EMAIL_BLOCK_MS = 60 * 60 * 1000; // 60 minutes
-    // block
+    private transient static final Map<String, List<Long>> ipAccessLog = new HashMap<>();
+    private transient static final Map<String, List<Long>> ipRegAccessLog = new HashMap<>();
+    private transient static final Map<String, List<Long>> emailOtpAttempts = new HashMap<>();
+    private transient static final Map<String, Long> emailBlockUntil = new HashMap<>();
 
-    // private static final Set<String> WHITELISTED_IPS = Set.of(
-    // "127.0.0.1",
-    // "10.0.0.5",
-    // "192.168.1.10"
-    // // Add more as needed
-    // );
     // === CONFIG-DRIVEN LIMITS ===
     private int maxSmsOtpPerDay;
     private int maxRegAttemptsPerDay;
@@ -97,8 +84,7 @@ public class JansUserRegistration extends NewUserRegistration {
 
     private static JansUserRegistration INSTANCE = null;
     private Map<String, String> flowConfig;
-    private final Map<String, String> emailOtpStore = new HashMap<>();
-    private static final Map<String, String> userCodes = new HashMap<>();
+    
 
     // No-arg constructor
     public JansUserRegistration() {
