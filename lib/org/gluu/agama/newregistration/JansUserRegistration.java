@@ -66,10 +66,33 @@ public class JansUserRegistration extends NewUserRegistration {
     // Track OTP attempts by IP for 24-hour rate limiting
     private static final Map<String, List<Long>> ipAccessLog = new HashMap<>();
     private static final Map<String, List<Long>> ipRegAccessLog = new HashMap<>();
-    private static final int MAX_ATTEMPTS_PER_DAY = 4; // 1 + 3 resends allowed
-    private static final int MAX_REG_ATTEMPTS_PER_DAY = 3;   // 3 registrations per IP
-    private static final long TIME_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
-    // private static String currentClientIp = "127.0.0.1"; 
+    private static final Map<String, List<Long>> emailOtpAttempts = new HashMap<>();
+    private static final Map<String, Long> emailBlockUntil = new HashMap<>();
+
+    // private static final int MAX_ATTEMPTS_PER_DAY = 4; // 1 + 3 resends allowed
+    // private static final int MAX_REG_ATTEMPTS_PER_DAY = 3;   // 3 registrations per IP
+    // private static final long TIME_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
+    // private static final int EMAIL_OTP_LIMIT = 10;        // 10 attempts allowed
+    // private static final long EMAIL_WINDOW_MS = 5 * 60 * 1000; // 5 minutes window
+    // private static final long EMAIL_BLOCK_MS = 60 * 60 * 1000; // 60 minutes block
+
+    // private static final Set<String> WHITELISTED_IPS = Set.of(
+    // "127.0.0.1",
+    // "10.0.0.5",
+    // "192.168.1.10"
+    // // Add more as needed
+    // );
+    // === CONFIG-DRIVEN LIMITS ===
+    private int maxSmsOtpPerDay;
+    private int maxRegAttemptsPerDay;
+    private long timeWindowMs;
+
+    private int emailOtpLimit;
+    private long emailWindowMs;
+    private long emailBlockMs;
+
+    private Set<String> whitelistedIps = new HashSet<>();
+
     
 
     private static JansUserRegistration INSTANCE = null;
@@ -80,12 +103,14 @@ public class JansUserRegistration extends NewUserRegistration {
     //  No-arg constructor
     public JansUserRegistration() {
         this.flowConfig = new HashMap<>();
+        initRateLimitConfig();
         logger.info("Initialized JansUserRegistration using default constructor (no config).");
     }
 
     //  Constructor used by config
     private JansUserRegistration(Map<String, String> config) {
         this.flowConfig = config;
+        initRateLimitConfig();
         logger.info("Using Twilio account SID: {}", config.get("ACCOUNT_SID"));
     }
 
@@ -105,6 +130,33 @@ public class JansUserRegistration extends NewUserRegistration {
         }
         return INSTANCE;
     }
+
+    private boolean isWhitelistedIp(String ip) {
+        // return ip != null && WHITELISTED_IPS.contains(ip);
+        return ip != null && whitelistedIps.contains(ip);
+    }
+
+    private void initRateLimitConfig() {
+
+        maxSmsOtpPerDay = parseInt(flowConfig.get("MAX_SMS_OTP_PER_DAY"), 4);
+        maxRegAttemptsPerDay = parseInt(flowConfig.get("MAX_REG_ATTEMPTS_PER_DAY"), 3);
+        timeWindowMs = parseLong(flowConfig.get("TIME_WINDOW_MS"), 24L * 60 * 60 * 1000);
+
+        emailOtpLimit = parseInt(flowConfig.get("EMAIL_OTP_LIMIT"), 10);
+        emailWindowMs = parseLong(flowConfig.get("EMAIL_WINDOW_MS"), 5L * 60 * 1000);
+        emailBlockMs = parseLong(flowConfig.get("EMAIL_BLOCK_MS"), 60L * 60 * 1000);
+
+        whitelistedIps = Arrays.stream(
+                flowConfig.getOrDefault("WHITELISTED_IPS", "")
+                        .split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toSet());
+
+        logger.info("Loaded Rate Limit Config :: SMS={}, REG={}, EMAIL={}, WINDOW={}, WHITELIST={}",
+                maxSmsOtpPerDay, maxRegAttemptsPerDay, emailOtpLimit, timeWindowMs, whitelistedIps);
+    }
+
 
 
     private void logIncomingHeaders() {
@@ -253,6 +305,14 @@ public class JansUserRegistration extends NewUserRegistration {
     }
 
     public String sendEmail(String to, String lang) {
+
+        if (isEmailBlocked(to)) {
+            logger.error("Email {} is temporarily blocked from receiving OTP", to);
+            return null;
+        }
+
+        recordEmailAttempt(to);
+
         try {
             ConfigurationService configService = CdiUtil.bean(ConfigurationService.class);
             SmtpConfiguration smtpConfig = configService.getConfiguration().getSmtpConfiguration();
@@ -755,7 +815,8 @@ public class JansUserRegistration extends NewUserRegistration {
         long now = System.currentTimeMillis();
         ipAccessLog.compute(clientIp, (key, timestamps) -> {
             if (timestamps == null) timestamps = new ArrayList<>();
-            timestamps.removeIf(ts -> now - ts > TIME_WINDOW_MS);
+            // timestamps.removeIf(ts -> now - ts > TIME_WINDOW_MS);
+            timestamps.removeIf(ts -> now - ts > timeWindowMs);
             timestamps.add(now);
             return timestamps;
         });
@@ -764,13 +825,19 @@ public class JansUserRegistration extends NewUserRegistration {
     }
 
     private boolean isIpBlocked(String clientIp) {
+        if (isWhitelistedIp(clientIp)) {
+            logger.info("IP {} is WHITELISTED — skipping OTP blocking", clientIp);
+            return false;
+        }
         List<Long> timestamps = ipAccessLog.get(clientIp);
             if (timestamps == null) return false;
 
             long now = System.currentTimeMillis();
-            timestamps.removeIf(ts -> now - ts > TIME_WINDOW_MS);
+            // timestamps.removeIf(ts -> now - ts > TIME_WINDOW_MS);
+            timestamps.removeIf(ts -> now - ts > timeWindowMs);
 
-            boolean blocked = timestamps.size() >= MAX_ATTEMPTS_PER_DAY;
+            // boolean blocked = timestamps.size() >= MAX_ATTEMPTS_PER_DAY;
+            boolean blocked = timestamps.size() >= maxSmsOtpPerDay;
             if (blocked) {
                 logger.warn(" IP {} BLOCKED for 24h — Attempts: {}/{}", clientIp, timestamps.size());
             }
@@ -779,17 +846,23 @@ public class JansUserRegistration extends NewUserRegistration {
     
     //REGISTRATION-IP-BLOCKING-FIXES
     private boolean isRegIpBlocked(String clientIp) {
+        if (isWhitelistedIp(clientIp)) {
+            logger.info("IP {} is WHITELISTED — skipping registration blocking", clientIp);
+            return false;
+            }
         List<Long> timestamps = ipRegAccessLog.get(clientIp);
             if (timestamps == null) return false;
 
             long now = System.currentTimeMillis();
-            timestamps.removeIf(ts -> now - ts > TIME_WINDOW_MS);
+            // timestamps.removeIf(ts -> now - ts > TIME_WINDOW_MS);
+            timestamps.removeIf(ts -> now - ts > timeWindowMs);
 
-            boolean blocked = timestamps.size() >= MAX_REG_ATTEMPTS_PER_DAY;
+            // boolean blocked = timestamps.size() >= MAX_REG_ATTEMPTS_PER_DAY;
+            boolean blocked = timestamps.size() >= maxRegAttemptsPerDay;
 
             if (blocked) {
                 logger.info("REGISTRATION BLOCK — IP {} has exceeded {}/{} attempts",
-                        clientIp, timestamps.size(), MAX_REG_ATTEMPTS_PER_DAY);
+                        clientIp, timestamps.size(), maxRegAttemptsPerDay);
             }
 
         return blocked;
@@ -800,7 +873,8 @@ public class JansUserRegistration extends NewUserRegistration {
 
         ipRegAccessLog.compute(clientIp, (key, timestamps) -> {
             if (timestamps == null) timestamps = new ArrayList<>();
-            timestamps.removeIf(ts -> now - ts > TIME_WINDOW_MS);
+            // timestamps.removeIf(ts -> now - ts > TIME_WINDOW_MS);
+            timestamps.removeIf(ts -> now - ts > timeWindowMs);
             timestamps.add(now);
             return timestamps;
         });
@@ -808,6 +882,55 @@ public class JansUserRegistration extends NewUserRegistration {
         logger.info("Registration attempt logged for IP {} → Total: {}",
                 clientIp, ipRegAccessLog.get(clientIp).size());
     }
+
+
+    private boolean isEmailBlocked(String email) {
+        String clientIp = extractClientIp();
+        if (isWhitelistedIp(clientIp)) {
+            logger.info("IP {} is WHITELISTED — skipping EMAIL blocking", clientIp);
+            return false;
+        }
+        long now = System.currentTimeMillis();
+        Long blockedUntil = emailBlockUntil.get(email);
+
+        if (blockedUntil == null) return false;
+
+        if (now < blockedUntil) {
+            long minutesLeft = (blockedUntil - now) / 60000;
+            logger.warn("Email {} is BLOCKED for another {} minutes", email, minutesLeft);
+            return true;
+        }
+
+        // block expired
+        emailBlockUntil.remove(email);
+        return false;
+    }
+
+    private void recordEmailAttempt(String email) {
+        long now = System.currentTimeMillis();
+
+        emailOtpAttempts.compute(email, (key, list) -> {
+            if (list == null) list = new ArrayList<>();
+
+            // remove attempts older than window
+            // list.removeIf(ts -> now - ts > EMAIL_WINDOW_MS);
+            list.removeIf(ts -> now - ts > emailWindowMs);
+
+            list.add(now);
+            return list;
+        });
+
+        int attempts = emailOtpAttempts.get(email).size();
+        logger.info("Email OTP attempt recorded for {} → {} attempts", email, attempts);
+
+        if (attempts >= emailOtpLimit) {
+            // long blockUntil = now + EMAIL_BLOCK_MS;
+            long blockUntil = now + emailBlockMs;
+            emailBlockUntil.put(email, blockUntil);
+            logger.warn("Email {} BLOCKED for 60 minutes due to excessive OTP requests", email);
+        }
+    }
+
 
 
     @Override
