@@ -96,7 +96,7 @@ public class JansUserRegistration extends NewUserRegistration {
 
     // Constructor used by config
     private JansUserRegistration(Map<String, String> config) {
-        this.flowConfig = config;
+        
         initRateLimitConfig();
         logger.info("Using Twilio account SID: {}", config.get("ACCOUNT_SID"));
     }
