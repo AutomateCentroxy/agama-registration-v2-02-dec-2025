@@ -89,7 +89,8 @@ public class JansUserRegistration extends NewUserRegistration {
     // No-arg constructor
     public JansUserRegistration() {
         this.flowConfig = new HashMap<>();
-
+        this.flowConfig = config;
+        initRateLimitConfig();
         logger.info("Initialized JansUserRegistration using default constructor (no config).");
     }
 
