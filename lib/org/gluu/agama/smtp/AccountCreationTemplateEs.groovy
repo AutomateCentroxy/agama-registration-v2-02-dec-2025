@@ -26,7 +26,7 @@ class AccountCreationTemplateEs {
                     <tr>
                       <td style="padding:45px;font-family:'Nunito Sans',Helvetica,Arial,sans-serif;color:#51545E;font-size:16px;line-height:1.625;">
                         <p>Hola,</p>
-                        <p>Â¡Bienvenido/a a <strong>Phi Wallet</strong>! Tu camino hacia la protecciÃ³n de tu futuro financiero comienza ahora.</p>
+                        <p>¡Bienvenido/a a <strong>Phi Wallet</strong>! Tu camino hacia la protección de tu futuro financiero comienza ahora.</p>
 
                         <p><strong>Detalles de tu cuenta:</strong></p>
                         <div style="text-align:center;margin:30px 0;">
@@ -40,7 +40,7 @@ class AccountCreationTemplateEs {
 
                         <div style="text-align:center;margin:30px 0;">
                           <a href="https://link.phiwallet.com/vll3ylhkeqb" style="background-color:#AD9269;color:#ffffff;padding:14px 28px;text-decoration:none;border-radius:4px;font-weight:600;display:inline-block;">
-                            Abrir la aplicaciÃ³n
+                            Abrir la aplicación
                           </a>
                         </div>
 
@@ -59,7 +59,7 @@ class AccountCreationTemplateEs {
                   <tbody>
                     <tr>
                       <td style="padding:20px;font-size:12px;color:#666;">
-                        <p style="margin:0 0 10px 0;font-size:14px;font-weight:bold;color:#565555;">SÃ­guenos en:</p>
+                        <p style="margin:0 0 10px 0;font-size:14px;font-weight:bold;color:#565555;">Síguenos en:</p>
                         <p>
                           <a href="https://www.facebook.com/PhiWallet"><img src="https://storage.googleapis.com/mwapp_prod_bucket/social_icon_images/facebook.png" style="height:20px;margin:0 5px;"></a>
                           <a href="https://x.com/PhiWallet"><img src="https://storage.googleapis.com/mwapp_prod_bucket/social_icon_images/twitter.png" style="height:20px;margin:0 5px;"></a>
