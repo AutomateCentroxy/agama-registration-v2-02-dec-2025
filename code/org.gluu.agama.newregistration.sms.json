@@ -19,7 +19,22 @@
 				"agamaData": {
 					"isTopLevelFlow": true,
 					"basepath": "",
-					"configParams": "{\n  \"ACCOUNT_SID\": \"PUT_YOUR_TWILIO_ACCOUNT_SID_HERE\",\n  \"AUTH_TOKEN\": \"PUT_YOUR_TWILIO_AUTH_TOKEN_HERE\",\n  \"FROM_NUMBER\": \"PUT_YOUR_TWILIO_FROM_NUMBER_HERE\"\n}",
+					"configParams": {
+						"ACCOUNT_SID": "PUT_YOUR_TWILIO_ACCOUNT_SID_HERE",
+						"AUTH_TOKEN": "PUT_YOUR_TWILIO_AUTH_TOKEN_HERE",
+						"FROM_NUMBER": "PUT_YOUR_TWILIO_FROM_NUMBER_HERE",
+						"FROM_NUMBER_US": "PUT_US_SENDER_NUMBER_HERE",
+						"FROM_NUMBER_RESTRICTED_COUNTRIES": "PUT_RESTRICTED_SENDER_NUMBER_HERE",
+						"US_COUNTRY_CODES": "PUT_US_COUNTRY_CODES_HERE",
+						"RESTRICTED_COUNTRY_CODES": "PUT_RESTRICTED_CODES_HERE",
+						"MAX_SMS_OTP_PER_DAY": "PUT_SMS_OTP_LIMIT_HERE",
+						"MAX_REG_ATTEMPTS_PER_DAY": "PUT_REGISTRATION_LIMIT_HERE",
+						"TIME_WINDOW_MS": "PUT_TIME_WINDOW_MS_HERE",
+						"EMAIL_OTP_LIMIT": "PUT_EMAIL_OTP_LIMIT_HERE",
+						"EMAIL_WINDOW_MS": "PUT_EMAIL_WINDOW_MS_HERE",
+						"EMAIL_BLOCK_MS": "PUT_EMAIL_BLOCK_TIME_MS_HERE",
+						"WHITELISTED_IPS": "PUT_WHITELISTED_IPS_HERE"
+					},
 					"nodeIcon": "material-symbols:line-start-square",
 					"timeout": "300000",
 					"inputs": "",
@@ -35,7 +50,7 @@
 				"width": 170,
 				"height": 123
 			},
-			"selected": false,
+			"selected": true,
 			"dragging": false
 		},
 		{
@@ -3906,7 +3921,7 @@
 				"width": 170,
 				"height": 123
 			},
-			"selected": true,
+			"selected": false,
 			"dragging": false
 		},
 		{
@@ -5926,8 +5941,8 @@
 		}
 	],
 	"viewport": {
-		"x": -5104.105133305285,
-		"y": -1186.454997664522,
-		"zoom": 1.0570180405613803
+		"x": 1529.4427844567665,
+		"y": 471.07423561476764,
+		"zoom": 0.6745512671698494
 	}
 }
