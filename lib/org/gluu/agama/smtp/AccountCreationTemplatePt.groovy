@@ -20,8 +20,8 @@ class AccountCreationTemplatePt {
             </tr>
             <tr>
               <td style="padding:45px;font-family:'Nunito Sans',Helvetica,Arial,sans-serif;font-size:16px;color:#51545E;line-height:1.625;">
-                <p>OlÃ¡,</p>
-                <p>Bem-vindo Ã  <strong>Phi Wallet</strong>! A sua jornada de proteÃ§Ã£o patrimonial comeÃ§a agora.</p>
+                <p>Olá,</p>
+                <p>Bem-vindo à <strong>Phi Wallet</strong>! A sua jornada de proteção patrimonial começa agora.</p>
 
                 <p><strong>Detalhes da sua conta:</strong></p>
                 <div style="text-align:center;margin:30px 0;">
@@ -30,12 +30,12 @@ class AccountCreationTemplatePt {
                   </div>
                 </div>
 
-                <p><strong>PrÃ³ximo passo: Verificar a sua identidade</strong></p>
-                <p>Para garantir que o seu ouro permanece exclusivamente sob o seu controlo, precisamos de verificar a sua identidade. Esta medida de seguranÃ§a protege o seu ouro e confere-lhe plenos direitos de propriedade.</p>
+                <p><strong>Próximo passo: Verificar a sua identidade</strong></p>
+                <p>Para garantir que o seu ouro permanece exclusivamente sob o seu controlo, precisamos de verificar a sua identidade. Esta medida de segurança protege o seu ouro e confere-lhe plenos direitos de propriedade.</p>
 
                 <div style="text-align:center;margin:30px 0;">
                   <a href="https://link.phiwallet.com/vll3ylhkeqb" style="background-color:#AD9269;color:#ffffff;padding:14px 28px;text-decoration:none;border-radius:4px;font-weight:600;">
-                    Abrir a aplicaÃ§Ã£o
+                    Abrir a aplicação
                   </a>
                 </div>
 
@@ -74,7 +74,7 @@ class AccountCreationTemplatePt {
 """;
 
         return Map.of(
-            "subject", "Bem-vindo Ã  Phi Wallet",
+            "subject", "Bem-vindo à Phi Wallet",
             "body", html
         );
     }
