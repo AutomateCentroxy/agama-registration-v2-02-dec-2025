@@ -104,6 +104,7 @@ Repeat 6 times max
                                              Log "@info User % has been created" inum
                                              // "User Account created successfully!"
                                              uiFeedback.infoMessage = "User Account created successfully!"
+                                             sendemailStatus = Call userRegistrationService sendAccountCreationNotificationEmail email userName lang
                                              ValidMobileNum = Repeat 10 times max
                                                   //  Show UI to collect Mobile number from user.
                                                   phoneInput = RRF "InputMobileNumber.ftlh" uiFeedback
@@ -172,8 +173,8 @@ Repeat 6 times max
                     uiFeedback.errorMessage = "You have reached the maximun email OTP verification"
                     // Email OTP verification loop completed
                     Log "@info Email OTP verification loop completed"
-                    it_dkkig = {success:false, error: "User update flow reached max attempts. Try later"}
-                    Finish it_dkkig
+                    it_huezp = {success:false, error: "User update flow reached max attempts. Try later"}
+                    Finish it_huezp
                Otherwise
                     // User already registered with UID
                     Log "@info User already registered with uid: %" userName
@@ -190,5 +191,5 @@ Repeat 6 times max
 // Maximum attempt reached
 Log "@info Maximum attempt reached"
 // User Registration flow failed
-it_qwhfp = {success:false, error: "User registration flow reached max attempts try later"}
-Finish it_qwhfp
+it_mbgor = {success:false, error: "User registration flow reached max attempts try later"}
+Finish it_mbgor
