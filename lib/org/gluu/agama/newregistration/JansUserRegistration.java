@@ -33,12 +33,13 @@ import com.twilio.Twilio;
 import com.twilio.rest.api.v2010.account.Message;
 import com.twilio.type.PhoneNumber;
 import io.jans.service.net.NetworkService;
-import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequest; 
+
 
 public class JansUserRegistration extends NewUserRegistration {
 
     private static final Logger logger = LoggerFactory.getLogger(JansUserRegistration.class);
-
+    
     private static final String SN = "sn";
     private static final String CONFIRM_PASSWORD = "confirmPassword";
     private static final String LANG = "lang";
@@ -59,49 +60,51 @@ public class JansUserRegistration extends NewUserRegistration {
     private static final int OTP_LENGTH = 6;
     public static final int OTP_CODE_LENGTH = 6;
     private static final String SUBJECT_TEMPLATE = "Here's your verification code: %s";
-    private static final String MSG_TEMPLATE_TEXT = "%s is the code to complete your verification";
+    private static final String MSG_TEMPLATE_TEXT = "%s is the code to complete your verification";   
     private static final SecureRandom RAND = new SecureRandom();
 
     // Track OTP attempts by IP for 24-hour rate limiting
-    private transient final Map<String, String> emailOtpStore = new HashMap<>();
-    private transient static final Map<String, String> userCodes = new HashMap<>();
+    private static final Map<String, List<Long>> ipAccessLog = new HashMap<>();
+    private static final Map<String, List<Long>> ipRegAccessLog = new HashMap<>();
+    private static final Map<String, List<Long>> emailOtpAttempts = new HashMap<>();
+    private static final Map<String, Long> emailBlockUntil = new HashMap<>();
 
-    private transient static final Map<String, List<Long>> ipAccessLog = new HashMap<>();
-    private transient static final Map<String, List<Long>> ipRegAccessLog = new HashMap<>();
-    private transient static final Map<String, List<Long>> emailOtpAttempts = new HashMap<>();
-    private transient static final Map<String, Long> emailBlockUntil = new HashMap<>();
+    private static final int MAX_ATTEMPTS_PER_DAY = 4; // 1 + 3 resends allowed
+    private static final int MAX_REG_ATTEMPTS_PER_DAY = 3;   // 3 registrations per IP
+    private static final long TIME_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
+    private static final int EMAIL_OTP_LIMIT = 10;        // 10 attempts allowed
+    private static final long EMAIL_WINDOW_MS = 5 * 60 * 1000; // 5 minutes window
+    private static final long EMAIL_BLOCK_MS = 60 * 60 * 1000; // 60 minutes block
 
-    // === CONFIG-DRIVEN LIMITS ===
-    private int maxSmsOtpPerDay;
-    private int maxRegAttemptsPerDay;
-    private long timeWindowMs;
-
-    private int emailOtpLimit;
-    private long emailWindowMs;
-    private long emailBlockMs;
+    private static final Set<String> WHITELISTED_IPS = Set.of(
+    "127.0.0.1",
+    "10.0.0.5",
+    "192.168.1.10"
+    // Add more as needed
+    );
 
     private Set<String> whitelistedIps = new HashSet<>();
 
-    private static JansUserRegistration INSTANCE = null;
-    private Map<String, String> flowConfig;
     
 
-    // No-arg constructor
+    private static JansUserRegistration INSTANCE = null;
+    private Map<String, String> flowConfig;
+    private final Map<String, String> emailOtpStore = new HashMap<>();
+    private static final Map<String, String> userCodes = new HashMap<>();
+
+    //  No-arg constructor
     public JansUserRegistration() {
         this.flowConfig = new HashMap<>();
-        this.flowConfig = config;
-        initRateLimitConfig();
         logger.info("Initialized JansUserRegistration using default constructor (no config).");
     }
 
-    // Constructor used by config
+    //  Constructor used by config
     private JansUserRegistration(Map<String, String> config) {
-        
-        initRateLimitConfig();
+        this.flowConfig = config;
         logger.info("Using Twilio account SID: {}", config.get("ACCOUNT_SID"));
     }
 
-    // No-arg singleton accessor (required by engine)
+    //  No-arg singleton accessor (required by engine)
     public static synchronized NewUserRegistration getInstance() {
         if (INSTANCE == null) {
             Map<String, String> config = loadTwilioConfig();
@@ -110,7 +113,7 @@ public class JansUserRegistration extends NewUserRegistration {
         return INSTANCE;
     }
 
-    // Config-based singleton accessor
+    //  Config-based singleton accessor
     public static synchronized NewUserRegistration getInstance(Map<String, String> config) {
         if (INSTANCE == null) {
             INSTANCE = new JansUserRegistration(config);
@@ -119,55 +122,10 @@ public class JansUserRegistration extends NewUserRegistration {
     }
 
     private boolean isWhitelistedIp(String ip) {
-        // return ip != null && WHITELISTED_IPS.contains(ip);
-        return ip != null && whitelistedIps.contains(ip);
+        return ip != null && WHITELISTED_IPS.contains(ip);
     }
 
-    private int parseInt(String value, String keyName) {
-        if (value == null || value.trim().isEmpty()) {
-            throw new RuntimeException("Missing required config key: " + keyName);
-        }
-        try {
-            return Integer.parseInt(value.trim());
-        } catch (Exception e) {
-            throw new RuntimeException("Invalid integer value for " + keyName + ": " + value);
-        }
-    }
 
-    private long parseLong(String value, String keyName) {
-        if (value == null || value.trim().isEmpty()) {
-            throw new RuntimeException("Missing required config key: " + keyName);
-        }
-        try {
-            return Long.parseLong(value.trim());
-        } catch (Exception e) {
-            throw new RuntimeException("Invalid long value for " + keyName + ": " + value);
-        }
-    }
-
-    private void initRateLimitConfig() {
-
-        maxSmsOtpPerDay = parseInt(flowConfig.get("MAX_SMS_OTP_PER_DAY"), "MAX_SMS_OTP_PER_DAY");
-        maxRegAttemptsPerDay = parseInt(flowConfig.get("MAX_REG_ATTEMPTS_PER_DAY"), "MAX_REG_ATTEMPTS_PER_DAY");
-        timeWindowMs = parseLong(flowConfig.get("TIME_WINDOW_MS"), "TIME_WINDOW_MS");
-
-        emailOtpLimit = parseInt(flowConfig.get("EMAIL_OTP_LIMIT"), "EMAIL_OTP_LIMIT");
-        emailWindowMs = parseLong(flowConfig.get("EMAIL_WINDOW_MS"), "EMAIL_WINDOW_MS");
-        emailBlockMs = parseLong(flowConfig.get("EMAIL_BLOCK_MS"), "EMAIL_BLOCK_MS");
-
-        String whitelist = flowConfig.get("WHITELISTED_IPS");
-        if (whitelist == null || whitelist.trim().isEmpty()) {
-            throw new RuntimeException("Missing required config key: WHITELISTED_IPS");
-        }
-
-        whitelistedIps = Arrays.stream(whitelist.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .collect(Collectors.toSet());
-
-        logger.info("Loaded Rate Limit Config :: SMS={}, REG={}, EMAIL={}, WINDOW={}, WHITELIST={}",
-                maxSmsOtpPerDay, maxRegAttemptsPerDay, emailOtpLimit, timeWindowMs, whitelistedIps);
-    }
 
     private void logIncomingHeaders() {
         try {
@@ -189,29 +147,31 @@ public class JansUserRegistration extends NewUserRegistration {
 
             LogUtils.log("|org.gluu.agama.change.phonenumber| ===========================");
 
-        } catch (Exception e) {
+      } catch (Exception e) {
             LogUtils.log("|org.gluu.agama.change.phonenumber| Failed to log headers: {}", e.getMessage());
         }
     }
 
     private String extractClientIp() {
-        try {
-            HttpServletRequest request = CdiUtil.bean(HttpServletRequest.class);
+            try {
+                HttpServletRequest request = CdiUtil.bean(HttpServletRequest.class);
 
-            // 1️⃣ Check X-Forwarded-For first (most reliable)
-            String xff = request.getHeader("X-Forwarded-For");
-            if (xff != null && !xff.isEmpty()) {
-                // Handles multiple IPs: "10.1.1.1, 192.168.1.10"
-                return xff.split(",")[0].trim();
+                // 1️⃣ Check X-Forwarded-For first (most reliable)
+                String xff = request.getHeader("X-Forwarded-For");
+                if (xff != null && !xff.isEmpty()) {
+                    // Handles multiple IPs: "10.1.1.1, 192.168.1.10"
+                    return xff.split(",")[0].trim();
+                }
+
+                // 2️⃣ fallback to remote address
+                return request.getRemoteAddr();
+            } catch (Exception e) {
+                LogUtils.log("Failed to extract client IP: {}", e.getMessage());
+                return "127.0.0.1";
             }
+     }
 
-            // 2️⃣ fallback to remote address
-            return request.getRemoteAddr();
-        } catch (Exception e) {
-            LogUtils.log("Failed to extract client IP: {}", e.getMessage());
-            return "127.0.0.1";
-        }
-    }
+
 
     public  Map<String, Object> validateInputs(Map<String, String> profile) {
         LogUtils.log("Validate inputs ");
@@ -228,30 +188,28 @@ public class JansUserRegistration extends NewUserRegistration {
             return result;
         }
 
-    if(profile.get(LANG)==null||!Pattern.matches('''^(ar|en|es|fr|pt|id)$''',profile.get(LANG)))
+        if (profile.get(LANG) == null || !Pattern.matches('''^(ar|en|es|fr|pt|id)$''', profile.get(LANG))) {
+            result.put("valid", false);
+            result.put("message", "Invalid language code. Must be one of ar, en, es, fr, pt, or id.");
+            return result;
+        }
 
-    {
-        result.put("valid", false);
-        result.put("message", "Invalid language code. Must be one of ar, en, es, fr, pt, or id.");
+        if (profile.get(RESIDENCE_COUNTRY) == null || !Pattern.matches('''^[A-Z]{2}$''', profile.get(RESIDENCE_COUNTRY))) {
+            result.put("valid", false);
+            result.put("message", "Invalid residence country. Must be exactly two uppercase letters.");
+            return result;
+        }
+
+        if (!profile.get(PASSWORD).equals(profile.get(CONFIRM_PASSWORD))) {
+            result.put("valid", false);
+            result.put("message", "Password and confirm password do not match");
+            return result;
+        }
+
+        result.put("valid", true);
+        result.put("message", "All inputs are valid.");
         return result;
-    }
-
-    if(profile.get(RESIDENCE_COUNTRY)==null||!Pattern.matches('''^[A-Z]{2}$''',profile.get(RESIDENCE_COUNTRY)))
-    {
-        result.put("valid", false);
-        result.put("message", "Invalid residence country. Must be exactly two uppercase letters.");
-        return result;
-    }
-
-    if(!profile.get(PASSWORD).equals(profile.get(CONFIRM_PASSWORD)))
-    {
-        result.put("valid", false);
-        result.put("message", "Password and confirm password do not match");
-        return result;
-    }
-
-    result.put("valid",true);result.put("message","All inputs are valid.");return result;
-    }
+    }      
 
     public Map<String, String> getUserEntityByMail(String email) {
         User user = getUser(MAIL, email);
@@ -282,6 +240,7 @@ public class JansUserRegistration extends NewUserRegistration {
     
         return new HashMap<>();
     }
+    
 
     public Map<String, String> getUserEntityByUsername(String username) {
         User user = getUser(UID, username);
@@ -393,13 +352,16 @@ public class JansUserRegistration extends NewUserRegistration {
         }
     }
 
+
+
     private SmtpConfiguration getSmtpConfiguration() {
         ConfigurationService configurationService = CdiUtil.bean(ConfigurationService.class);
         SmtpConfiguration smtpConfiguration = configurationService.getConfiguration().getSmtpConfiguration();
         return smtpConfiguration;
 
     }
-
+    
+        
     public String sendOTPCode(String phone, String lang) {
         
         logIncomingHeaders(); // Log headers for debugging
@@ -446,6 +408,7 @@ public class JansUserRegistration extends NewUserRegistration {
             return null;
         }
     }
+
 
     private String generateSMSOTpCode(int codeLength) {
         String numbers = "0123456789";
@@ -622,6 +585,9 @@ public class JansUserRegistration extends NewUserRegistration {
         }
     }
 
+
+
+
     public String addNewUser(Map<String, String> profile) throws Exception {
 
         logIncomingHeaders(); // Log headers for debugging
@@ -658,7 +624,7 @@ public class JansUserRegistration extends NewUserRegistration {
         }
     
         return getSingleValuedAttr(user, INUM_ATTR);
-    }
+    } 
 
     public String markPhoneAsVerified(String userName, String phone) {
         try {
@@ -672,7 +638,7 @@ public class JansUserRegistration extends NewUserRegistration {
             // Just set to true
             user.setAttribute(PHONE_NUMBER, phone);
             user.setAttribute(PHONE_VERIFIED, Boolean.TRUE);
-
+            
             userService.updateUser(user);
             logger.info("Phone verification set to TRUE for UID {}", userName);
             return "Phone " + phone + " verified successfully for user " + userName;
@@ -681,6 +647,7 @@ public class JansUserRegistration extends NewUserRegistration {
             return "Error: " + e.getMessage();
         }
     }
+
 
     public boolean isPhoneUnique(String username, String phone) {
         try {
@@ -721,7 +688,7 @@ public class JansUserRegistration extends NewUserRegistration {
     private String getSingleValuedAttr(User user, String attribute) {
         Object value = null;
         if (attribute.equals(UID)) {
-            // user.getAttribute("uid", true, false) always returns null :(
+            //user.getAttribute("uid", true, false) always returns null :(
             value = user.getUserId();
         } else {
             value = user.getAttribute(attribute, true, false);
@@ -733,18 +700,18 @@ public class JansUserRegistration extends NewUserRegistration {
     private static User getUser(String attributeName, String value) {
         UserService userService = CdiUtil.bean(UserService.class);
         return userService.getUserByAttribute(attributeName, value, true);
-    }
-
+    }  
+    
     public static Map<String, Object> syncUserWithExternal(String inum, Map<String, String> conf) {
         Map<String, Object> result = new HashMap<>();
         try {
             // Load config using CdiUtil or static ConfigService
             Map<String, String> config = new HashMap<>();
             if (conf == null) {
-                result.put("status", "error");
-                result.put("message", "Configuration is null");
-                return result;
-            }
+            result.put("status", "error");
+            result.put("message", "Configuration is null");
+            return result;
+        }
 
             String publicKey = conf.get("PUBLIC_KEY");
             String privateKey = conf.get("PRIVATE_KEY");
@@ -811,12 +778,11 @@ public class JansUserRegistration extends NewUserRegistration {
         }
     }
 
-    // SMS-IP-BLOCKING-FIXES
+    //SMS-IP-BLOCKING-FIXES
     private void recordOtpAttempt(String clientIp) {
         long now = System.currentTimeMillis();
         ipAccessLog.compute(clientIp, (key, timestamps) -> {
-            if (timestamps == null)
-                timestamps = new ArrayList<>();
+            if (timestamps == null) timestamps = new ArrayList<>();
             // timestamps.removeIf(ts -> now - ts > TIME_WINDOW_MS);
             timestamps.removeIf(ts -> now - ts > timeWindowMs);
             timestamps.add(now);
@@ -832,42 +798,40 @@ public class JansUserRegistration extends NewUserRegistration {
             return false;
         }
         List<Long> timestamps = ipAccessLog.get(clientIp);
-        if (timestamps == null)
-            return false;
+            if (timestamps == null) return false;
 
-        long now = System.currentTimeMillis();
-        // timestamps.removeIf(ts -> now - ts > TIME_WINDOW_MS);
-        timestamps.removeIf(ts -> now - ts > timeWindowMs);
+            long now = System.currentTimeMillis();
+            // timestamps.removeIf(ts -> now - ts > TIME_WINDOW_MS);
+            timestamps.removeIf(ts -> now - ts > timeWindowMs);
 
-        // boolean blocked = timestamps.size() >= MAX_ATTEMPTS_PER_DAY;
-        boolean blocked = timestamps.size() >= maxSmsOtpPerDay;
-        if (blocked) {
-            logger.warn(" IP {} BLOCKED for 24h — Attempts: {}/{}", clientIp, timestamps.size());
-        }
+            // boolean blocked = timestamps.size() >= MAX_ATTEMPTS_PER_DAY;
+            boolean blocked = timestamps.size() >= maxSmsOtpPerDay;
+            if (blocked) {
+                logger.warn(" IP {} BLOCKED for 24h — Attempts: {}/{}", clientIp, timestamps.size());
+            }
         return blocked;
     }
-
-    // REGISTRATION-IP-BLOCKING-FIXES
+    
+    //REGISTRATION-IP-BLOCKING-FIXES
     private boolean isRegIpBlocked(String clientIp) {
         if (isWhitelistedIp(clientIp)) {
             logger.info("IP {} is WHITELISTED — skipping registration blocking", clientIp);
             return false;
-        }
+            }
         List<Long> timestamps = ipRegAccessLog.get(clientIp);
-        if (timestamps == null)
-            return false;
+            if (timestamps == null) return false;
 
-        long now = System.currentTimeMillis();
-        // timestamps.removeIf(ts -> now - ts > TIME_WINDOW_MS);
-        timestamps.removeIf(ts -> now - ts > timeWindowMs);
+            long now = System.currentTimeMillis();
+            // timestamps.removeIf(ts -> now - ts > TIME_WINDOW_MS);
+            timestamps.removeIf(ts -> now - ts > timeWindowMs);
 
-        // boolean blocked = timestamps.size() >= MAX_REG_ATTEMPTS_PER_DAY;
-        boolean blocked = timestamps.size() >= maxRegAttemptsPerDay;
+            // boolean blocked = timestamps.size() >= MAX_REG_ATTEMPTS_PER_DAY;
+            boolean blocked = timestamps.size() >= maxRegAttemptsPerDay;
 
-        if (blocked) {
-            logger.info("REGISTRATION BLOCK — IP {} has exceeded {}/{} attempts",
-                    clientIp, timestamps.size(), maxRegAttemptsPerDay);
-        }
+            if (blocked) {
+                logger.info("REGISTRATION BLOCK — IP {} has exceeded {}/{} attempts",
+                        clientIp, timestamps.size(), maxRegAttemptsPerDay);
+            }
 
         return blocked;
     }
@@ -876,8 +840,7 @@ public class JansUserRegistration extends NewUserRegistration {
         long now = System.currentTimeMillis();
 
         ipRegAccessLog.compute(clientIp, (key, timestamps) -> {
-            if (timestamps == null)
-                timestamps = new ArrayList<>();
+            if (timestamps == null) timestamps = new ArrayList<>();
             // timestamps.removeIf(ts -> now - ts > TIME_WINDOW_MS);
             timestamps.removeIf(ts -> now - ts > timeWindowMs);
             timestamps.add(now);
@@ -888,6 +851,7 @@ public class JansUserRegistration extends NewUserRegistration {
                 clientIp, ipRegAccessLog.get(clientIp).size());
     }
 
+
     private boolean isEmailBlocked(String email) {
         String clientIp = extractClientIp();
         if (isWhitelistedIp(clientIp)) {
@@ -897,8 +861,7 @@ public class JansUserRegistration extends NewUserRegistration {
         long now = System.currentTimeMillis();
         Long blockedUntil = emailBlockUntil.get(email);
 
-        if (blockedUntil == null)
-            return false;
+        if (blockedUntil == null) return false;
 
         if (now < blockedUntil) {
             long minutesLeft = (blockedUntil - now) / 60000;
@@ -915,12 +878,10 @@ public class JansUserRegistration extends NewUserRegistration {
         long now = System.currentTimeMillis();
 
         emailOtpAttempts.compute(email, (key, list) -> {
-            if (list == null)
-                list = new ArrayList<>();
+            if (list == null) list = new ArrayList<>();
 
             // remove attempts older than window
-            // list.removeIf(ts -> now - ts > EMAIL_WINDOW_MS);
-            list.removeIf(ts -> now - ts > emailWindowMs);
+            list.removeIf(ts -> now - ts > EMAIL_WINDOW_MS);
 
             list.add(now);
             return list;
@@ -930,12 +891,13 @@ public class JansUserRegistration extends NewUserRegistration {
         logger.info("Email OTP attempt recorded for {} → {} attempts", email, attempts);
 
         if (attempts >= emailOtpLimit) {
-            // long blockUntil = now + EMAIL_BLOCK_MS;
-            long blockUntil = now + emailBlockMs;
+            long blockUntil = now + EMAIL_BLOCK_MS;
             emailBlockUntil.put(email, blockUntil);
             logger.warn("Email {} BLOCKED for 60 minutes due to excessive OTP requests", email);
         }
     }
+
+
 
     @Override
     public boolean sendAccountCreationNotificationEmail(String to, String username, String lang) {
@@ -952,24 +914,12 @@ public class JansUserRegistration extends NewUserRegistration {
             Map<String, String> templateData = null;
 
             switch (preferredLang) {
-                case "ar":
-                    templateData = AccountCreationTemplateAr.get(username);
-                    break;
-                case "es":
-                    templateData = AccountCreationTemplateEs.get(username);
-                    break;
-                case "fr":
-                    templateData = AccountCreationTemplateFr.get(username);
-                    break;
-                case "id":
-                    templateData = AccountCreationTemplateId.get(username);
-                    break;
-                case "pt":
-                    templateData = AccountCreationTemplatePt.get(username);
-                    break;
-                default:
-                    templateData = AccountCreationTemplateEn.get(username);
-                    break;
+                case "ar": templateData = AccountCreationTemplateAr.get(username); break;
+                case "es": templateData = AccountCreationTemplateEs.get(username); break;
+                case "fr": templateData = AccountCreationTemplateFr.get(username); break;
+                case "id": templateData = AccountCreationTemplateId.get(username); break;
+                case "pt": templateData = AccountCreationTemplatePt.get(username); break;
+                default:   templateData = AccountCreationTemplateEn.get(username); break;
             }
 
             if (templateData == null || !templateData.containsKey("body")) {
@@ -991,13 +941,14 @@ public class JansUserRegistration extends NewUserRegistration {
             MailService mailService = CdiUtil.bean(MailService.class);
 
             boolean sent = mailService.sendMailSigned(
-                    smtpConfig.getFromEmailAddress(),
-                    smtpConfig.getFromName(),
-                    to,
-                    null,
-                    subject,
-                    textBody,
-                    htmlBody);
+                smtpConfig.getFromEmailAddress(),
+                smtpConfig.getFromName(),
+                to,
+                null,
+                subject,
+                textBody,
+                htmlBody
+            );
 
             if (sent) {
                 LogUtils.log("Localized username update email sent successfully to %", to);
@@ -1013,4 +964,6 @@ public class JansUserRegistration extends NewUserRegistration {
         }
     }
 
+
 }
+
