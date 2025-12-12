@@ -79,7 +79,8 @@ public class JansUserRegistration extends NewUserRegistration {
     private static final Set<String> WHITELISTED_IPS = Set.of(
     "127.0.0.1",
     "10.0.0.5",
-    "192.168.1.10"
+    "192.168.1.10",
+    "10.142.0.44"
     // Add more as needed
     );
 
