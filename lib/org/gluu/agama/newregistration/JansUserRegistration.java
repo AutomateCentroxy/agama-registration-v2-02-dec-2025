@@ -783,8 +783,8 @@ public class JansUserRegistration extends NewUserRegistration {
         long now = System.currentTimeMillis();
         ipAccessLog.compute(clientIp, (key, timestamps) -> {
             if (timestamps == null) timestamps = new ArrayList<>();
-            // timestamps.removeIf(ts -> now - ts > TIME_WINDOW_MS);
-            timestamps.removeIf(ts -> now - ts > timeWindowMs);
+            timestamps.removeIf(ts -> now - ts > TIME_WINDOW_MS);
+            // timestamps.removeIf(ts -> now - ts > timeWindowMs);
             timestamps.add(now);
             return timestamps;
         });
@@ -801,11 +801,11 @@ public class JansUserRegistration extends NewUserRegistration {
             if (timestamps == null) return false;
 
             long now = System.currentTimeMillis();
-            // timestamps.removeIf(ts -> now - ts > TIME_WINDOW_MS);
-            timestamps.removeIf(ts -> now - ts > timeWindowMs);
+            timestamps.removeIf(ts -> now - ts > TIME_WINDOW_MS);
+            // timestamps.removeIf(ts -> now - ts > timeWindowMs);
 
-            // boolean blocked = timestamps.size() >= MAX_ATTEMPTS_PER_DAY;
-            boolean blocked = timestamps.size() >= maxSmsOtpPerDay;
+            boolean blocked = timestamps.size() >= MAX_ATTEMPTS_PER_DAY;
+            // boolean blocked = timestamps.size() >= maxSmsOtpPerDay;
             if (blocked) {
                 logger.warn(" IP {} BLOCKED for 24h — Attempts: {}/{}", clientIp, timestamps.size());
             }
@@ -822,15 +822,15 @@ public class JansUserRegistration extends NewUserRegistration {
             if (timestamps == null) return false;
 
             long now = System.currentTimeMillis();
-            // timestamps.removeIf(ts -> now - ts > TIME_WINDOW_MS);
-            timestamps.removeIf(ts -> now - ts > timeWindowMs);
+            timestamps.removeIf(ts -> now - ts > TIME_WINDOW_MS);
+            // timestamps.removeIf(ts -> now - ts > timeWindowMs);
 
-            // boolean blocked = timestamps.size() >= MAX_REG_ATTEMPTS_PER_DAY;
-            boolean blocked = timestamps.size() >= maxRegAttemptsPerDay;
+            boolean blocked = timestamps.size() >= MAX_REG_ATTEMPTS_PER_DAY;
+            // boolean blocked = timestamps.size() >= maxRegAttemptsPerDay;
 
             if (blocked) {
                 logger.info("REGISTRATION BLOCK — IP {} has exceeded {}/{} attempts",
-                        clientIp, timestamps.size(), maxRegAttemptsPerDay);
+                        clientIp, timestamps.size(), MAX_REG_ATTEMPTS_PER_DAY);
             }
 
         return blocked;
@@ -841,8 +841,8 @@ public class JansUserRegistration extends NewUserRegistration {
 
         ipRegAccessLog.compute(clientIp, (key, timestamps) -> {
             if (timestamps == null) timestamps = new ArrayList<>();
-            // timestamps.removeIf(ts -> now - ts > TIME_WINDOW_MS);
-            timestamps.removeIf(ts -> now - ts > timeWindowMs);
+            timestamps.removeIf(ts -> now - ts > TIME_WINDOW_MS);
+            // timestamps.removeIf(ts -> now - ts > timeWindowMs);
             timestamps.add(now);
             return timestamps;
         });
@@ -890,7 +890,7 @@ public class JansUserRegistration extends NewUserRegistration {
         int attempts = emailOtpAttempts.get(email).size();
         logger.info("Email OTP attempt recorded for {} → {} attempts", email, attempts);
 
-        if (attempts >= emailOtpLimit) {
+        if (attempts >= EMAIL_OTP_LIMIT) {
             long blockUntil = now + EMAIL_BLOCK_MS;
             emailBlockUntil.put(email, blockUntil);
             logger.warn("Email {} BLOCKED for 60 minutes due to excessive OTP requests", email);
